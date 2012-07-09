@@ -1,0 +1,5 @@
+X11 key handler
+
+Copyright 2012 Vadim Vygonets.  Licensed under WTFPL 2.0.
+
+xkey grabs an X11 key and runs a command each time it's pressed.

@@ -1,0 +1,17 @@
+.TH XKEY 1 2012-07-09 http://github.com/unixdj Vadik
+.SH NAME
+xkey \- X11 key handler
+.SH SYNOPSIS
+.B xkey
+\fIkeysym\fR \fIcommand\fR [\fIkeysym\fR \fIcommand\fR ...]
+.SH DESCRIPTION
+.B xkey
+binds X11 keys globally and runs specified commands when they're pressed.
+.SH EXAMPLE
+.sp
+xkey XF86ScreenSaver slock \e
+     XF86AudioRaiseVolume 'amixer set Master 1dB+' \e
+     XF86AudioLowerVolume 'amixer set Master 1dB-'
+.fi
+.SH AUTHOR
+xkey was written by Vadim Vygonets <\fIvadik@vygo.net\fR>.
