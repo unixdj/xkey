@@ -112,7 +112,6 @@ run(struct binding *key)
 		warn("fork failed");
 		/* FALLTHROUGH */
 	default:
-		warnx("pid %d", key->pid);
 		break;
 	}
 }
@@ -156,7 +155,7 @@ mainloop()
 				if (keys[i].pid == 0)
 					run(&keys[i]);
 				else
-					warnx("handler for %s still running, pid %d",
+					warnx("handler for %s already running, pid %d",
 					    keys[i].string, keys[i].pid);
 				break;
 			}
