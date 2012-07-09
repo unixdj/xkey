@@ -14,7 +14,7 @@
 #include <X11/XF86keysym.h>
 
 struct binding {
-	char		*string;
+	char		*symbol;
 	char		*cmd;
 	int		keycode;
 	unsigned long	req;
@@ -49,11 +49,10 @@ eh(Display *dpy, XErrorEvent *e)
 
 	for (i = 0; i < nkeys; i++) {
 		if (keys[i].req == e->serial)
-			xerror(keys[i].string, e->error_code);
+			xerror(keys[i].symbol, e->error_code);
 	}
 	xerror(NULL, e->error_code);
 	/* NOTREACHED */
-	return 0;
 }
 
 static void
@@ -67,23 +66,23 @@ initkeys(int argc, char **argv)
 		return;
 	memset(keys, 0, sizeof(struct binding) * nkeys);
 	for (i = 0; i < nkeys; i++) {
-		keys[i].string = *argv++;
+		keys[i].symbol = *argv++;
 		keys[i].cmd = *argv++;
-		sym = XStringToKeysym(keys[i].string);
+		sym = XStringToKeysym(keys[i].symbol);
 		if (sym == NoSymbol) {
-			errx(1, "%s: keysym not found", keys[i].string);
+			errx(1, "%s: keysym not found", keys[i].symbol);
 			continue;
 		}
 		keys[i].keycode = XKeysymToKeycode(dpy, sym);
 		if (keys[i].keycode == 0) {
 			errx(1, "%s: keycode for %#x not found",
-			    keys[i].string, (unsigned)sym);
+			    keys[i].symbol, (unsigned)sym);
 			continue;
 		}
 		keys[i].req = NextRequest(dpy);
 		if (XGrabKey(dpy, keys[i].keycode, AnyModifier, root, True,
 		    GrabModeAsync, GrabModeAsync) == BadAccess) {
-			xerror(keys[i].string, BadAccess);
+			xerror(keys[i].symbol, BadAccess);
 			break;
 		}
 	}
@@ -156,7 +155,7 @@ mainloop()
 					run(&keys[i]);
 				else
 					warnx("handler for %s already running, pid %d",
-					    keys[i].string, keys[i].pid);
+					    keys[i].symbol, keys[i].pid);
 				break;
 			}
 		}
@@ -178,7 +177,7 @@ main(int argc, char **argv)
 	XSetErrorHandler(eh);
 	sigaction(SIGCHLD, &(struct sigaction){.sa_handler = sigchld}, NULL);
 	initkeys(argc - 1, argv + 1);
-	mainloop();
+	mainloop(); /* this never returns, actually */
 	freekeys();
 	XCloseDisplay(dpy);
 	return 0;
