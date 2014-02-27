@@ -69,21 +69,17 @@ initkeys(int argc, char **argv)
 		keys[i].symbol = *argv++;
 		keys[i].cmd = *argv++;
 		sym = XStringToKeysym(keys[i].symbol);
-		if (sym == NoSymbol) {
+		if (sym == NoSymbol)
 			errx(1, "%s: keysym not found", keys[i].symbol);
-			continue;
-		}
 		keys[i].keycode = XKeysymToKeycode(dpy, sym);
 		if (keys[i].keycode == 0) {
 			errx(1, "%s: keycode for %#x not found",
 			    keys[i].symbol, (unsigned)sym);
-			continue;
 		}
 		keys[i].req = NextRequest(dpy);
 		if (XGrabKey(dpy, keys[i].keycode, AnyModifier, root, True,
 		    GrabModeAsync, GrabModeAsync) == BadAccess) {
 			xerror(keys[i].symbol, BadAccess);
-			break;
 		}
 	}
 }
@@ -102,6 +98,12 @@ freekeys()
 static void
 run(struct binding *key)
 {
+	sigset_t set;
+
+	sigemptyset(&set);
+	sigaddset(&set, SIGCHLD);
+	if (sigprocmask(SIG_BLOCK, &set, NULL) == -1)
+		err(1, "sigprocmask failed");
 	switch ((key->pid = fork())) {
 	case 0:
 		execl(_PATH_BSHELL, _PATH_BSHELL, "-c", key->cmd, NULL);
@@ -113,6 +115,8 @@ run(struct binding *key)
 	default:
 		break;
 	}
+	if (sigprocmask(SIG_UNBLOCK, &set, NULL) == -1)
+		err(1, "sigprocmask failed");
 }
 
 static void
@@ -164,6 +168,12 @@ mainloop()
 	}
 }
 
+static void
+closedisplay()
+{
+	XCloseDisplay(dpy);
+}
+
 int
 main(int argc, char **argv)
 {
@@ -173,12 +183,15 @@ main(int argc, char **argv)
 	}
 	if ((dpy = XOpenDisplay(NULL)) == NULL)
 		errx(1, "no display");
+	atexit(closedisplay);
 	root = DefaultRootWindow(dpy);
 	XSetErrorHandler(eh);
-	sigaction(SIGCHLD, &(struct sigaction){.sa_handler = sigchld}, NULL);
+	if (sigaction(SIGCHLD, &(struct sigaction){.sa_handler = sigchld},
+            NULL) == -1) {
+		err(1, "sigaction failed");
+	}
 	initkeys(argc - 1, argv + 1);
+	atexit(freekeys);
 	mainloop(); /* this never returns, actually */
-	freekeys();
-	XCloseDisplay(dpy);
 	return 0;
 }
