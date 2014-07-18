@@ -1,4 +1,4 @@
-/* Copyright 2001 Vadim Vygonets.  No rights reserved.
+/* Copyright 2012, 2014 Vadim Vygonets.  No rights reserved.
  * Use of this source code is governed by WTFPL v2
  * that can be found in the LICENSE file.  */
 
@@ -18,19 +18,18 @@ struct binding {
 	char		*cmd;
 	int		keycode;
 	unsigned long	req;
-	int		pid;
+	volatile pid_t	pid;
 };
 
-static struct binding	*keys = NULL;
+static struct binding	*keys;
 static int		nkeys;
 static Display		*dpy;
 static Window		root;
 
-#ifdef __GNUC__
-static void	xerror(char *s, int code) __attribute__((noreturn));
-#endif
-
 static void
+#ifdef __GNUC__
+__attribute__((noreturn))
+#endif
 xerror(char *s, int code)
 {
 	char	buf[BUFSIZ];
@@ -43,6 +42,9 @@ xerror(char *s, int code)
 }
 
 static int
+#ifdef __GNUC__
+__attribute__((noreturn))
+#endif
 eh(Display *dpy, XErrorEvent *e)
 {
 	int	i;
@@ -98,25 +100,28 @@ freekeys()
 static void
 run(struct binding *key)
 {
-	sigset_t set;
+	sigset_t	set;
+	pid_t		pid;
 
 	sigemptyset(&set);
 	sigaddset(&set, SIGCHLD);
 	if (sigprocmask(SIG_BLOCK, &set, NULL) == -1)
 		err(1, "sigprocmask failed");
-	switch ((key->pid = fork())) {
+	key->pid = pid = fork();
+	if (sigprocmask(SIG_UNBLOCK, &set, NULL) == -1)
+		err(1, "sigprocmask failed");
+	switch (pid) {
 	case 0:
 		execl(_PATH_BSHELL, _PATH_BSHELL, "-c", key->cmd, NULL);
 		err(1, "exec failed");
 		/* NOTREACHED */
 	case -1:
+		key->pid = 0;
 		warn("fork failed");
-		/* FALLTHROUGH */
+		break;
 	default:
 		break;
 	}
-	if (sigprocmask(SIG_UNBLOCK, &set, NULL) == -1)
-		err(1, "sigprocmask failed");
 }
 
 static void
@@ -135,7 +140,7 @@ sigchld(int sig)
 			}
 		}
 		if (i == nkeys)
-			warnx("waited for an unknown pid %d", pid);
+			warnx("waited for an unknown pid %d", (int)pid);
 	}
 #if 0
 	if (pid == -1)
@@ -154,14 +159,15 @@ mainloop()
 		if (ev.type != KeyPress)
 			continue;
 		for (i = 0; i < nkeys; i++) {
-			if (keys[i].keycode == ev.xkey.keycode) {
-				if (keys[i].pid == 0)
-					run(&keys[i]);
-				else
-					warnx("handler for %s already running, pid %d",
-					    keys[i].symbol, keys[i].pid);
-				break;
+			if (keys[i].keycode != ev.xkey.keycode)
+				continue;
+			if (keys[i].pid == 0)
+				run(&keys[i]);
+			else {
+				warnx("handler for %s already running, pid %d",
+				    keys[i].symbol, (int)keys[i].pid);
 			}
+			break;
 		}
 		if (i == nkeys)
 			warnx("swallowed keycode %d", ev.xkey.keycode);
