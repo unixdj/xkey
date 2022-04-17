@@ -23,90 +23,119 @@
 #include <paths.h>
 #include <sys/wait.h>
 #include <X11/Xlib.h>
-#include <X11/XF86keysym.h>
+
+#ifndef __dead
+#ifdef __GNUC__
+#define __dead __attribute__((noreturn))
+#else
+#define __dead
+#endif
+#endif
+
+#ifdef __GNUC__
+#define BARRIER()	asm("":::"memory")
+#else
+#define BARRIER()	do { } while(0)
+#endif
+
+#define ARRAY_SIZE(a)	(sizeof(a) / sizeof(*(a)))
+
+#define MODMASK	(ShiftMask | ControlMask | Mod1Mask | Mod4Mask | Mod5Mask)
+static const char	modifiers[] = "S-CM--45";
+
+// LockMask = Caps Lock, Mod2Mask = Num Lock, Mod3Mask = Scroll Lock
+static const unsigned char	lockmasks[] = {
+	0,
+	LockMask,
+	Mod2Mask,
+	LockMask | Mod2Mask,
+	Mod3Mask,
+	LockMask | Mod3Mask,
+	Mod2Mask | Mod3Mask,
+	LockMask | Mod2Mask | Mod3Mask,
+};
 
 struct binding {
 	char		*symbol;
 	char		*cmd;
-	int		keycode;
-	unsigned long	req;
-	volatile pid_t	pid;
+	unsigned int	 keycode;
+	unsigned int	 modifiers;
+	unsigned long	 req[ARRAY_SIZE(lockmasks)];
+	volatile pid_t	 pid;
 };
 
 static struct binding	*keys;
-static int		nkeys;
+static int		 nkeys;
 static Display		*dpy;
-static Window		root;
+static Window		 root;
 
-static void
-#ifdef __GNUC__
-__attribute__((noreturn))
-#endif
-xerror(char *s, int code)
+static int __dead
+eh(Display *dpy, XErrorEvent *e)
 {
 	char	buf[BUFSIZ];
+	int	i, j;
 
-	XGetErrorText(dpy, code, buf, sizeof(buf));
-	if (s != NULL)
-		errx(1, "Cannot bind %s: %s", s, buf);
+	XGetErrorText(dpy, e->error_code, buf, sizeof(buf));
+	for (i = 0; i < nkeys; i++) {
+		for (j = 0; j < ARRAY_SIZE(keys[i].req); j++) {
+			if (keys[i].req[j] == e->serial) {
+				errx(1, "Cannot bind %s: %s", keys[i].symbol,
+				    buf);
+			}
+		}
+	}
 	errx(1, "X error: %s", buf);
 	/* NOTREACHED */
 }
 
-static int
-#ifdef __GNUC__
-__attribute__((noreturn))
-#endif
-eh(Display *dpy, XErrorEvent *e)
+static void
+grabkey(struct binding *key)
 {
 	int	i;
 
-	for (i = 0; i < nkeys; i++) {
-		if (keys[i].req == e->serial)
-			xerror(keys[i].symbol, e->error_code);
+	for (i = 0; i < ARRAY_SIZE(lockmasks); i++) {
+		key->req[i] = NextRequest(dpy);
+		XGrabKey(dpy, key->keycode, key->modifiers | lockmasks[i],
+		    root, True, GrabModeAsync, GrabModeAsync);
 	}
-	xerror(NULL, e->error_code);
-	/* NOTREACHED */
 }
 
 static void
 initkeys(int argc, char **argv)
 {
-	int	i;
-	KeySym	sym;
+	int	 i;
+	KeySym	 sym;
+	char	*s, *m;
 
 	nkeys = argc / 2;
 	if ((keys = malloc(sizeof(struct binding) * nkeys)) == NULL)
-		return;
+		err(1, "malloc");
 	memset(keys, 0, sizeof(struct binding) * nkeys);
 	for (i = 0; i < nkeys; i++) {
 		keys[i].symbol = *argv++;
 		keys[i].cmd = *argv++;
-		sym = XStringToKeysym(keys[i].symbol);
+		if ((s = strchr(keys[i].symbol, '-')) != NULL) {
+			for (s = keys[i].symbol; *s != '-'; s++) {
+				if ((m = strchr(modifiers, *s)) == NULL) {
+					errx(1, "%s: invalid modifier %c",
+					    keys[i].symbol, *s);
+				}
+				keys[i].modifiers |= 1 << (m - modifiers);
+			}
+			s++;
+		} else {
+			s = keys[i].symbol;
+		}
+		sym = XStringToKeysym(s);
 		if (sym == NoSymbol)
-			errx(1, "%s: keysym not found", keys[i].symbol);
+			errx(1, "%s: keysym not found", s);
 		keys[i].keycode = XKeysymToKeycode(dpy, sym);
 		if (keys[i].keycode == 0) {
 			errx(1, "%s: keycode for %#x not found",
 			    keys[i].symbol, (unsigned)sym);
 		}
-		keys[i].req = NextRequest(dpy);
-		if (XGrabKey(dpy, keys[i].keycode, AnyModifier, root, True,
-		    GrabModeAsync, GrabModeAsync) == BadAccess) {
-			xerror(keys[i].symbol, BadAccess);
-		}
+		grabkey(keys + i);
 	}
-}
-
-static void
-freekeys()
-{
-	while (nkeys) {
-		if (keys[--nkeys].keycode)
-			XUngrabKey(dpy, keys[nkeys].keycode, AnyModifier, root);
-	}
-	free(keys);
-	keys = NULL;
 }
 
 static void
@@ -115,11 +144,17 @@ run(struct binding *key)
 	sigset_t	set;
 	pid_t		pid;
 
+	if (key->pid != 0) {
+		warnx("handler for %s already running, pid %d",
+		    key->symbol, (int)key->pid);
+		return;
+	}
 	sigemptyset(&set);
 	sigaddset(&set, SIGCHLD);
 	if (sigprocmask(SIG_BLOCK, &set, NULL) == -1)
 		err(1, "sigprocmask failed");
 	key->pid = pid = fork();
+	BARRIER();
 	if (sigprocmask(SIG_UNBLOCK, &set, NULL) == -1)
 		err(1, "sigprocmask failed");
 	switch (pid) {
@@ -154,54 +189,39 @@ sigchld(int sig)
 		if (i == nkeys)
 			warnx("waited for an unknown pid %d", (int)pid);
 	}
-#if 0
-	if (pid == -1)
-		warn("wait4 failed");
-#endif
 }
 
-static void
+static void __dead
 mainloop()
 {
 	XEvent	ev;
 	int	i;
 
 	for (;;) {
+Next:
 		XNextEvent(dpy, &ev);
 		if (ev.type != KeyPress)
 			continue;
 		for (i = 0; i < nkeys; i++) {
-			if (keys[i].keycode != ev.xkey.keycode)
-				continue;
-			if (keys[i].pid == 0)
+			if (ev.xkey.keycode == keys[i].keycode &&
+			    (ev.xkey.state & MODMASK) == keys[i].modifiers) {
 				run(&keys[i]);
-			else {
-				warnx("handler for %s already running, pid %d",
-				    keys[i].symbol, (int)keys[i].pid);
+				goto Next;
 			}
-			break;
 		}
-		if (i == nkeys)
-			warnx("swallowed keycode %d", ev.xkey.keycode);
+		warnx("swallowed keycode %d", ev.xkey.keycode);
 	}
-}
-
-static void
-closedisplay()
-{
-	XCloseDisplay(dpy);
 }
 
 int
 main(int argc, char **argv)
 {
 	if (argc < 3 || !(argc & 1)) {
-		errx(1, "Usage: %s keysym command [keysym command ...]\n",
+		errx(2, "Usage: %s key command [key command ...]\n",
 		    argv[0]);
 	}
 	if ((dpy = XOpenDisplay(NULL)) == NULL)
 		errx(1, "no display");
-	atexit(closedisplay);
 	root = DefaultRootWindow(dpy);
 	XSetErrorHandler(eh);
 	if (sigaction(SIGCHLD, &(struct sigaction){.sa_handler = sigchld},
@@ -209,7 +229,6 @@ main(int argc, char **argv)
 		err(1, "sigaction failed");
 	}
 	initkeys(argc - 1, argv + 1);
-	atexit(freekeys);
-	mainloop(); /* this never returns, actually */
-	return 0;
+	mainloop();
+	/* NOTREACHED */
 }

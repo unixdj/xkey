@@ -12,20 +12,52 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.TH XKEY 1 2012-07-09 http://github.com/unixdj Vadik
-.SH NAME
-xkey \- X11 key handler
-.SH SYNOPSIS
-.B xkey
-\fIkeysym\fR \fIcommand\fR [\fIkeysym\fR \fIcommand\fR ...]
-.SH DESCRIPTION
-.B xkey
+.Dd 17 April 2022
+.Dt XKEY 1 LOCAL
+.OS
+.Sh NAME
+.Nm xkey
+.Nd X11 key handler
+.Sh SYNOPSIS
+.Nm
+.Ar key
+.Ar command
+.Op Ar key command ...
+.Sh DESCRIPTION
+.Nm
 binds X11 keys globally and runs specified commands when they're pressed.
-.SH EXAMPLE
-.sp
-xkey XF86ScreenSaver slock \e
+A
+.Ar key
+is specified as an X11 KeySym
+optionally preceeded by a sequence of modifiers and a
+.Sq Li - .
+The modifiers are:
+.Pp
+.Bl -tag -width Ds -offset indent -compact
+.It Ic S
+Shift
+.It Ic C
+Control
+.It Ic M
+Meta (Alt, Option)
+.It Ic 4
+Mod4 (Super, Command, Windows)
+.It Ic 5
+Mod5 (AltGr)
+.El
+.Sh EXAMPLES
+.Bd -literal
+xkey XF86ScreenSaver      slock \e
      XF86AudioRaiseVolume 'amixer set Master 3dB+' \e
-     XF86AudioLowerVolume 'amixer set Master 3dB-'
-.fi
-.SH AUTHOR
-xkey was written by Vadim Vygonets <\fIvadik@vygo.net\fR>.
+     XF86AudioLowerVolume 'amixer set Master 3dB-' \e
+     XF86AudioMute        'amixer set Master toggle' \e
+     S-XF86AudioMute      'amixer set Capture toggle' \e
+     CS-XF86AudioMute \e
+         'amixer set Master mute ; amixer set Capture nocap' &
+.Ed
+.Sh SEE ALSO
+.Xr xev 1 ,
+.Xr XStringToKeysym 3 ,
+.In X11/keysymdef.h
+.Sh AUTHORS
+.An Vadim Vygonets Aq vadik@vygo.net
