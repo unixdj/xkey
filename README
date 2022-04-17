@@ -1,5 +1,6 @@
-X11 key handler
+xkey - X11 key handler
 
-Copyright 2012 Vadim Vygonets.  Licensed under WTFPL 2.0.
+Copyright 2012, 2014, 2022 Vadim Vygonets <vadik@vygo.net>
+Licensed under ISC license
 
-xkey grabs an X11 key and runs a command each time it's pressed.
+xkey binds X11 keys globally and runs specified commands when they're pressed.
